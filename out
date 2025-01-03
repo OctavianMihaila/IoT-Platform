@@ -1,0 +1,161 @@
+#### stack.yml
+
+version: '3.8'
+
+services:
+  mqtt-broker:
+    image: emqx/emqx:latest
+    ports:
+      - "1883:1883"
+    networks:
+      - iot_network
+
+  influxdb:
+    image: influxdb:latest
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - ./influxdb/config.toml:/etc/influxdb2/config.toml
+    networks:
+      - iot_network
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "80:3000"
+    networks:
+      - iot_network
+
+  adapter:
+    image: mhoctavian/adapter:latest
+    depends_on:
+      - mqtt-broker
+      - influxdb
+    networks:
+      - iot_network
+
+volumes:
+  influxdb_data:
+    driver: local
+
+networks:
+  iot_network:
+    driver: overlay
+#### config.toml
+
+[meta]
+  dir = "/var/lib/influxdb2/meta"
+
+[data]
+  dir = "/var/lib/influxdb2/data"
+  wal-dir = "/var/lib/influxdb2/wal"
+
+[http]
+  bind-address = ":8086"
+  access-log-enabled = true
+  auth-enabled = false  # Setează pe true dacă activezi autentificarea
+
+#### run.sh
+
+#!/bin/bash
+
+# Name of the Docker registry image, e.g., your Docker Hub username and repository name
+IMAGE_NAME="mhoctavian/adapter:latest"
+STACK_NAME="tema3"
+
+# Function to stop everything immediately
+stop_all() {
+    echo "Stopping everything..."
+    docker stack rm "$STACK_NAME"
+    echo "Waiting for the stack to fully remove..."
+    sleep 10
+    echo "Pruning networks and volumes..."
+    docker network prune -f
+    docker volume prune -f
+    echo "All services and networks stopped."
+}
+
+if docker info | grep -q "Swarm: active"; then
+    stop_all
+fi
+
+echo "Initializing Docker Swarm..."
+docker swarm init
+
+echo "Building adapter image..."
+docker build -t "$IMAGE_NAME" ./adapter
+
+echo "Pushing image $IMAGE_NAME to Docker registry..."
+docker push "$IMAGE_NAME"
+
+echo "Deploying stack $STACK_NAME..."
+docker stack deploy -c stack.yml "$STACK_NAME"
+
+echo "Deployment completed! Checking services..."
+docker service ls
+#### mosquitto.conf
+
+allow_anonymous true
+listener 1883
+
+#### adapter.py
+
+import json
+import time
+from paho.mqtt.client import Client, CallbackAPIVersion
+from influxdb_client import InfluxDBClient, Point, WritePrecision
+
+# Configuration
+BROKER = "mqtt-broker"
+PORT = 1883
+TOPIC = "#"
+INFLUXDB_URL = "http://influxdb:8086"
+INFLUXDB_TOKEN = "my-token"
+INFLUXDB_BUCKET = "iot_data"
+INFLUXDB_ORG = "my-org"
+
+def on_message(message):
+    topic = message.topic
+    payload = message.payload.decode()
+    try:
+        # Parse JSON payload
+        data = json.loads(payload)
+        timestamp = data.get("timestamp", time.time())
+        
+        # Prepare InfluxDB entries
+        series_prefix = topic.replace("/", ".")
+        points = []
+        for key, value in data.items():
+            if isinstance(value, (int, float)):
+                point = Point(series_prefix).field(key, value).time(timestamp, WritePrecision.NS)
+                points.append(point)
+
+        # Write to InfluxDB
+        if points:
+            with InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG) as influx_client:
+                write_api = influx_client.write_api()
+                write_api.write(bucket=INFLUXDB_BUCKET, org=INFLUXDB_ORG, record=points)
+                print(f"Data written to InfluxDB: {points}")
+    except json.JSONDecodeError:
+        print(f"Invalid JSON payload: {payload}")
+    except Exception as e:
+        print(f"Error processing message: {e}")
+
+# MQTT client setup
+mqtt_client = Client(callback_api_version=CallbackAPIVersion.VERSION2)
+mqtt_client.on_message = on_message
+mqtt_client.connect(BROKER, PORT)
+mqtt_client.subscribe(TOPIC)
+
+print("Adapter is listening for messages...")
+mqtt_client.loop_forever()
+
+#### Dockerfile
+
+FROM python:3.9-slim
+WORKDIR /app
+COPY . .
+RUN pip install paho-mqtt influxdb-client
+CMD ["python", "adapter.py"]
+

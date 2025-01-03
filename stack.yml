@@ -1,0 +1,49 @@
+version: '3.8'
+
+configs:
+  mosquitto.conf:
+    file: ./mosquitto/mosquitto.conf
+
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:latest
+    ports:
+      - "1883:1883"
+    configs:
+      - source: mosquitto.conf
+        target: /mosquitto/config/mosquitto.conf
+    networks:
+      - iot_network
+
+  influxdb:
+    image: influxdb:latest
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      # - ./influxdb/config.toml:/etc/influxdb2/config.toml
+    networks:
+      - iot_network
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "80:3000"
+    networks:
+      - iot_network
+
+  adapter:
+    image: mhoctavian/adapter:latest
+    depends_on:
+      - mqtt-broker
+      - influxdb
+    networks:
+      - iot_network
+
+volumes:
+  influxdb_data:
+    driver: local
+
+networks:
+  iot_network:
+    driver: overlay
