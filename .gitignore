@@ -1,5 +1,5 @@
 # Ignore the 'out' directory and everything inside it
-out/
+out
 
 # Ignore any file named 'append.sh'
 append.sh
