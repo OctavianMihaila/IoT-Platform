@@ -54,7 +54,7 @@ def on_message(client, userdata, message):
             if isinstance(value, (int, float)):
                 point = Point(series_prefix) \
                     .field(key, value) \
-                    .time(timestamp_dt, WritePrecision.NS)
+                    .time(timestamp_dt, WritePrecision.NS) # Max time precision
                 points.append(point)
                 debug_log(f"{series_prefix}.{key} => {value}")
 

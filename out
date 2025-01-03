@@ -20,7 +20,7 @@ services:
       - iot_network
 
   influxdb:
-    image: influxdb:latest
+    image: influxdb:1.8
     ports:
       - "8086:8086"
     configs:
@@ -28,6 +28,7 @@ services:
         target: /etc/influxdb/influxdb.conf
     volumes:
       - influxdb_data:/var/lib/influxdb2
+      - ./influxdb/create_db.sh:/docker-entrypoint-initdb.d/create_db.sh
     networks:
       - iot_network
 
@@ -35,8 +36,16 @@ services:
     image: grafana/grafana:latest
     ports:
       - "80:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=asistent
+      - GF_SECURITY_ADMIN_PASSWORD=grafanaSCD2024
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
     networks:
       - iot_network
+    depends_on:
+      - influxdb
 
   adapter:
     image: mhoctavian/adapter:latest
@@ -52,6 +61,8 @@ services:
 volumes:
   influxdb_data:
     driver: local
+  grafana_data:
+    driver: local
 
 networks:
   iot_network:
@@ -63,66 +74,178 @@ networks:
 BROKER_HOST="localhost" 
 BROKER_PORT=1883
 
-mosquitto_pub \
-  -h "$BROKER_HOST" \
-  -p "$BROKER_PORT" \
-  -t "UPB/RPi_1" \
-  -m '{"BAT":99,"HUMID":40,"PRJ":"SCD","TMP":25.3,"status":"OK"}'
+if [[ "$1" == "show" ]]; then
+  echo "Fetching data from InfluxDB..."
 
-mosquitto_pub \
-  -h "$BROKER_HOST" \
-  -p "$BROKER_PORT" \
-  -t "Dorinel/Zeus" \
-  -m '{"Alarm":0,"RSSI":1500,"AQI":12,"status":"OK"}'
+  docker exec $(docker ps -q -f name=tema3_influxdb) influx -database iot_data -execute "SHOW MEASUREMENTS" -format csv | tail -n +2 | cut -d, -f2 | while read measurement; do \
+    echo "Querying measurement: $measurement"; \
+    docker exec $(docker ps -q -f name=tema3_influxdb) influx -database iot_data -execute "SELECT * FROM \"$measurement\" LIMIT 10"; \
+  done
 
-mosquitto_pub \
-  -h "$BROKER_HOST" \
-  -p "$BROKER_PORT" \
-  -t "IoT/RandomRoom" \
-  -m '{"TEMP":23.5,"HUMID":42,"SENSOR":"DHT11","status":"OK"}'
+  exit 0
+fi
 
-mosquitto_pub \
-  -h "$BROKER_HOST" \
-  -p "$BROKER_PORT" \
-  -t "Sensors/Greenhouse" \
-  -m '{"TEMPERATURE":30,"HUMIDITY":80,"CO2":550,"status":"WARN"}'
+if [[ "$1" == "run" ]]; then
+    echo "Publishing test messages to MQTT broker..."
 
-mosquitto_pub \
-  -h "$BROKER_HOST" \
-  -p "$BROKER_PORT" \
-  -t "Demo/DeviceA" \
-  -m '{"BAT":45,"TMP":18.9,"Volt":3.7,"status":"OK"}'
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "UPB/RPi_1" \
+    -m '{"BAT":99,"HUMID":40,"PRJ":"SCD","TMP":25.3,"status":"OK"}'
 
-mosquitto_pub \
-  -h "$BROKER_HOST" \
-  -p "$BROKER_PORT" \
-  -t "Home/LivingRoom" \
-  -m '{"Lights":1,"Temperature":22.1,"Presence":true,"status":"OK"}'
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "UPB/RPi_1" \
+    -m '{"BAT":85,"HUMID":55,"TMP":28.1,"status":"OK"}'
 
-mosquitto_pub \
-  -h "$BROKER_HOST" \
-  -p "$BROKER_PORT" \
-  -t "Office/SensorNode" \
-  -m '{"HUMID":55,"VOC":33,"PM25":5,"status":"OK"}'
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Dorinel/Zeus" \
+    -m '{"Alarm":0,"RSSI":1500,"AQI":12,"status":"OK"}'
 
-mosquitto_pub \
-  -h "$BROKER_HOST" \
-  -p "$BROKER_PORT" \
-  -t "SmartFarm/Crops" \
-  -m '{"soilMoisture":60,"NPK":"8-10-5","pH":6.4,"status":"OK"}'
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Dorinel/Zeus" \
+    -m '{"Alarm":1,"RSSI":1200,"AQI":15,"status":"WARN"}'
 
-mosquitto_pub \
-  -h "$BROKER_HOST" \
-  -p "$BROKER_PORT" \
-  -t "City/Bucharest" \
-  -m '{"Traffic":250,"AQI":45,"NoiseLevel":70,"status":"OK"}'
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "IoT/RandomRoom" \
+    -m '{"TEMP":23.5,"HUMID":42,"SENSOR":"DHT11","status":"OK"}'
 
-mosquitto_pub \
-  -h "$BROKER_HOST" \
-  -p "$BROKER_PORT" \
-  -t "Demo/RandomSensors" \
-  -m '{"value1":123,"value2":456,"value3":789,"status":"OK"}'
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "IoT/RandomRoom" \
+    -m '{"TEMP":24.1,"HUMID":38,"SENSOR":"DHT11","status":"OK"}'
 
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "IoT/RandomRoom" \
+    -m '{"TEMP":22.9,"HUMID":45,"SENSOR":"DHT11","status":"WARN"}'
+
+    # Topic 4: Sensors/Greenhouse
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Sensors/Greenhouse" \
+    -m '{"TEMPERATURE":30,"HUMIDITY":80,"CO2":550,"status":"WARN"}'
+
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Sensors/Greenhouse" \
+    -m '{"TEMPERATURE":32,"HUMIDITY":85,"CO2":560,"status":"CRITICAL"}'
+
+    # Topic 5: SmartFarm/Crops
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "SmartFarm/Crops" \
+    -m '{"soilMoisture":60,"NPK":"8-10-5","pH":6.4,"status":"OK"}'
+
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "SmartFarm/Crops" \
+    -m '{"soilMoisture":55,"NPK":"10-15-5","pH":6.2,"status":"OK"}'
+
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "SmartFarm/Crops" \
+    -m '{"soilMoisture":65,"NPK":"8-10-5","pH":6.6,"status":"OK"}'
+
+    # Topic 6: Home/LivingRoom
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Home/LivingRoom" \
+    -m '{"Lights":1,"Temperature":22.1,"Presence":true,"status":"OK"}'
+
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Home/LivingRoom" \
+    -m '{"Lights":0,"Temperature":21.5,"Presence":false,"status":"OK"}'
+
+    # Topic 7: Demo/DeviceA
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Demo/DeviceA" \
+    -m '{"BAT":45,"TMP":18.9,"Volt":3.7,"status":"OK"}'
+
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Demo/DeviceA" \
+    -m '{"BAT":40,"TMP":19.5,"Volt":3.8,"status":"OK"}'
+
+    # Topic 8: City/Bucharest
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "City/Bucharest" \
+    -m '{"Traffic":250,"AQI":45,"NoiseLevel":70,"status":"OK"}'
+
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "City/Bucharest" \
+    -m '{"Traffic":300,"AQI":50,"NoiseLevel":75,"status":"WARN"}'
+
+    # Topic 9: Office/SensorNode
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Office/SensorNode" \
+    -m '{"HUMID":55,"VOC":33,"PM25":5,"status":"OK"}'
+
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Office/SensorNode" \
+    -m '{"HUMID":50,"VOC":35,"PM25":7,"status":"OK"}'
+
+    # Topic 10: New Topic: Lab/Sensors
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Lab/Sensors" \
+    -m '{"Temperature":22.5,"Pressure":1012,"Humidity":55,"status":"OK"}'
+
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Lab/Sensors" \
+    -m '{"Temperature":23.0,"Pressure":1015,"Humidity":58,"status":"WARN"}'
+
+    mosquitto_pub \
+    -h "$BROKER_HOST" \
+    -p "$BROKER_PORT" \
+    -t "Lab/Sensors" \
+    -m '{"Temperature":24.1,"Pressure":1010,"Humidity":60,"status":"CRITICAL"}'
+    exit 0
+fi
+
+# Invalid usage
+echo "Usage: $0 {show|run}"
+exit 1
+
+#### create_db.sh
+
+#!/bin/bash
+
+echo "Creating database 'iot_data' with unlimited retention..."
+influx -host localhost -port 8086 -execute "CREATE DATABASE iot_data WITH DURATION INF"
+echo "Database 'iot_data' created with unlimited retention."
 
 #### influxdb.conf
 
@@ -140,6 +263,89 @@ mosquitto_pub \
   # Disable HTTP authentication
   auth-enabled = false
 
+#### iot_UPB_generator.sh
+
+#!/bin/bash
+
+BROKER_HOST="localhost"
+BROKER_PORT=1883
+TOPIC="UPB/RPi_1"
+
+# Function to simulate continuous message generation
+generate_data() {
+  echo "Generating data for topic: $TOPIC"
+
+  local iterations=${1:-100}  # Default to 100 messages if not specified
+  local interval=${2:-1}      # Default to 1 second interval if not specified
+
+  for ((i = 1; i <= iterations; i++)); do
+    local bat=$((RANDOM % 20 + 80))        # Random BAT value between 80 and 100
+    local humid=$((RANDOM % 20 + 30))      # Random HUMID value between 30 and 50
+    local tmp=$(awk -v min=20 -v max=30 'BEGIN{srand(); print min+rand()*(max-min)}')  # Random TMP value between 20.0 and 30.0
+
+    mosquitto_pub \
+      -h "$BROKER_HOST" \
+      -p "$BROKER_PORT" \
+      -t "$TOPIC" \
+      -m "{\"BAT\":$bat,\"HUMID\":$humid,\"TMP\":$tmp,\"status\":\"OK\"}"
+
+    echo "Published message $i/$iterations: {\"BAT\":$bat,\"HUMID\":$humid,\"TMP\":$tmp,\"status\":\"OK\"}"
+
+    sleep "$interval"
+  done
+
+  echo "Finished generating $iterations messages for topic: $TOPIC"
+}
+
+if [[ "$1" == "run" ]]; then
+  generate_data "${2:-100}" "${3:-1}"
+  exit 0
+fi
+
+if [[ "$1" == "show" ]]; then
+  echo "Fetching data from InfluxDB..."
+
+  docker exec $(docker ps -q -f name=tema3_influxdb) influx -database iot_data -execute "SHOW MEASUREMENTS" -format csv | tail -n +2 | cut -d, -f2 | while read measurement; do \
+    echo "Querying measurement: $measurement"; \
+    docker exec $(docker ps -q -f name=tema3_influxdb) influx -database iot_data -execute "SELECT * FROM \"$measurement\" LIMIT 10"; \
+  done
+
+  exit 0
+fi
+
+# Invalid usage
+echo "Usage: $0 {run <iterations> <interval>|show}"
+exit 1
+
+
+#### dashboards.yml
+
+apiVersion: 1
+
+providers:
+  - name: 'default'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+
+
+#### datasources.yml
+
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    database: iot_data
+    isDefault: true
+
+
 #### run.sh
 
 #!/bin/bash
@@ -148,8 +354,8 @@ mosquitto_pub \
 IMAGE_NAME="mhoctavian/adapter:latest"
 STACK_NAME="tema3"
 
-# Function to stop everything immediately
-stop_all() {
+# Function to stop everything immediately (reset functionality)
+reset_stack() {
     echo "Stopping everything..."
     docker stack rm "$STACK_NAME"
     echo "Waiting for the stack to fully remove..."
@@ -158,26 +364,57 @@ stop_all() {
     docker network prune -f
     docker volume prune -f
     echo "All services and networks stopped."
+
+    echo "Initializing Docker Swarm..."
+    docker swarm init
+
+    echo "Building adapter image..."
+    docker build -t "$IMAGE_NAME" ./adapter
+
+    echo "Pushing image $IMAGE_NAME to Docker registry..."
+    docker push "$IMAGE_NAME"
+
+    echo "Deploying stack $STACK_NAME..."
+    docker stack deploy -c stack.yml "$STACK_NAME"
+
+    echo "Deployment completed! Checking services..."
+    docker service ls
 }
 
-if docker info | grep -q "Swarm: active"; then
-    stop_all
+# Function to restart the stack without deleting persistent data
+restart_stack() {
+    echo "Restarting stack $STACK_NAME..."
+    docker stack deploy -c stack.yml "$STACK_NAME"
+    echo "Deployment completed! Checking services..."
+    docker service ls
+}
+
+# Function to show usage
+show_usage() {
+    echo "Usage: $0 {reset|restart}"
+    echo
+    echo "reset   - Stops all services, deletes volumes and networks, rebuilds everything from scratch."
+    echo "restart - Restarts services while preserving persistent data (volumes) and shows configuration."
+    exit 1
+}
+
+# Main logic to handle reset and restart commands
+if [[ "$#" -ne 1 ]]; then
+    show_usage
 fi
 
-echo "Initializing Docker Swarm..."
-docker swarm init
+case "$1" in
+    reset)
+        reset_stack
+        ;;
+    restart)
+        restart_stack
+        ;;
+    *)
+        show_usage
+        ;;
+esac
 
-echo "Building adapter image..."
-docker build -t "$IMAGE_NAME" ./adapter
-
-echo "Pushing image $IMAGE_NAME to Docker registry..."
-docker push "$IMAGE_NAME"
-
-echo "Deploying stack $STACK_NAME..."
-docker stack deploy -c stack.yml "$STACK_NAME"
-
-echo "Deployment completed! Checking services..."
-docker service ls
 #### mosquitto.conf
 
 allow_anonymous true
@@ -240,7 +477,7 @@ def on_message(client, userdata, message):
             if isinstance(value, (int, float)):
                 point = Point(series_prefix) \
                     .field(key, value) \
-                    .time(timestamp_dt, WritePrecision.NS)
+                    .time(timestamp_dt, WritePrecision.NS) # Max time precision
                 points.append(point)
                 debug_log(f"{series_prefix}.{key} => {value}")
 

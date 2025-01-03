@@ -34,8 +34,16 @@ services:
     image: grafana/grafana:latest
     ports:
       - "80:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=asistent
+      - GF_SECURITY_ADMIN_PASSWORD=grafanaSCD2024
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
     networks:
       - iot_network
+    depends_on:
+      - influxdb
 
   adapter:
     image: mhoctavian/adapter:latest
@@ -50,6 +58,8 @@ services:
 
 volumes:
   influxdb_data:
+    driver: local
+  grafana_data:
     driver: local
 
 networks:
