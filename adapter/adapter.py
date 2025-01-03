@@ -1,75 +1,74 @@
 import json
 import time
 import os
+from datetime import datetime
 from paho.mqtt.client import Client, CallbackAPIVersion
 from influxdb_client import InfluxDBClient, Point, WritePrecision
-from datetime import datetime
 
-# Configuration
 BROKER = "mqtt-broker"
 PORT = 1883
 TOPIC = "#"
 INFLUXDB_URL = "http://influxdb:8086"
-INFLUXDB_TOKEN = "my-token"
+INFLUXDB_TOKEN = ""
 INFLUXDB_BUCKET = "iot_data"
 INFLUXDB_ORG = "my-org"
 
-# Check if debug mode is enabled
 DEBUG_MODE = os.getenv("DEBUG_DATA_FLOW", "false").lower() == "true"
 
 def debug_log(msg: str):
-    """
-    Print a debug message only if DEBUG_MODE is True.
-    Include a timestamp in a similar format to the example.
-    """
     if DEBUG_MODE:
-        # current local time
-        time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"{time_str} {msg}", flush=True)
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{now_str} {msg}", flush=True)
 
 def on_message(client, userdata, message):
     topic = message.topic
     payload = message.payload.decode()
 
-    # Debug: we got a new message
     debug_log(f"Received a message by topic [{topic}]")
 
     try:
-        # Parse JSON payload
         data = json.loads(payload)
-
-        # If the JSON has a "timestamp", use it; otherwise, we treat it as "NOW"
-        if "timestamp" in data:
-            # This is the data's own timestamp
-            timestamp = data["timestamp"]
-            debug_log(f"Data timestamp is : {timestamp}")
+        # If the JSON has 'timestamp', try to use it; otherwise use now
+        # This part is flexible depending on how you want to handle your 'timestamp' field
+        if 'timestamp' in data:
+            if isinstance(data['timestamp'], (int, float)):
+                # It's numeric => convert to datetime
+                ts_float = data['timestamp']
+                debug_log(f"Data timestamp is numeric => {ts_float}")
+                timestamp_dt = datetime.utcfromtimestamp(ts_float)
+            else:
+                # It's a string => attempt to parse or fallback to now
+                debug_log("Data timestamp is a string => parse it or fallback to now")
+                try:
+                    timestamp_dt = datetime.fromisoformat(data['timestamp'])
+                except ValueError:
+                    debug_log("Could not parse string timestamp, falling back to now")
+                    timestamp_dt = datetime.utcnow()
         else:
-            # We'll use the current time
-            timestamp = time.time()
-            debug_log(f"Data timestamp is : NOW")
+            debug_log("Data timestamp is : NOW")
+            timestamp_dt = datetime.utcnow()
 
-        # Prepare InfluxDB entries
         series_prefix = topic.replace("/", ".")
         points = []
         for key, value in data.items():
             if isinstance(value, (int, float)):
-                point = Point(series_prefix).field(key, value).time(timestamp, WritePrecision.NS)
+                point = Point(series_prefix) \
+                    .field(key, value) \
+                    .time(timestamp_dt, WritePrecision.NS)
                 points.append(point)
-                # Debug: show each measurement
                 debug_log(f"{series_prefix}.{key} => {value}")
 
-        # Write to InfluxDB
         if points:
             with InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG) as influx_client:
                 write_api = influx_client.write_api()
                 write_api.write(bucket=INFLUXDB_BUCKET, org=INFLUXDB_ORG, record=points)
                 debug_log(f"Data written to InfluxDB: {points}")
+
     except json.JSONDecodeError:
         print(f"Invalid JSON payload: {payload}", flush=True)
     except Exception as e:
         print(f"Error processing message: {e}", flush=True)
 
-# MQTT client setup
 mqtt_client = Client(callback_api_version=CallbackAPIVersion.VERSION2)
 mqtt_client.on_message = on_message
 mqtt_client.connect(BROKER, PORT)

@@ -3,6 +3,8 @@ version: '3.8'
 configs:
   mosquitto.conf:
     file: ./mosquitto/mosquitto.conf
+  influxdb.conf:
+    file: ./influxdb/influxdb.conf
 
 services:
   mqtt-broker:
@@ -16,12 +18,15 @@ services:
       - iot_network
 
   influxdb:
-    image: influxdb:latest
+    image: influxdb:1.8
     ports:
       - "8086:8086"
+    configs:
+      - source: influxdb.conf
+        target: /etc/influxdb/influxdb.conf
     volumes:
       - influxdb_data:/var/lib/influxdb2
-      # - ./influxdb/config.toml:/etc/influxdb2/config.toml
+      - ./influxdb/create_db.sh:/docker-entrypoint-initdb.d/create_db.sh
     networks:
       - iot_network
 

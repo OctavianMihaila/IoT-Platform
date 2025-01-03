@@ -1,10 +1,7 @@
 #!/bin/bash
 
-# Configurează broker-ul MQTT și portul
-BROKER_HOST="localhost"   # înlocuiește cu IP/hostname corespunzător
-BROKER_PORT=1883          # portul implicit al broker-ului
-
-echo "Trimit 10 mesaje diferite..."
+BROKER_HOST="localhost" 
+BROKER_PORT=1883
 
 mosquitto_pub \
   -h "$BROKER_HOST" \

@@ -5,6 +5,8 @@ version: '3.8'
 configs:
   mosquitto.conf:
     file: ./mosquitto/mosquitto.conf
+  influxdb.conf:
+    file: ./influxdb/influxdb.conf
 
 services:
   mqtt-broker:
@@ -21,9 +23,11 @@ services:
     image: influxdb:latest
     ports:
       - "8086:8086"
+    configs:
+      - source: influxdb.conf
+        target: /etc/influxdb/influxdb.conf
     volumes:
       - influxdb_data:/var/lib/influxdb2
-      # - ./influxdb/config.toml:/etc/influxdb2/config.toml
     networks:
       - iot_network
 
@@ -36,6 +40,9 @@ services:
 
   adapter:
     image: mhoctavian/adapter:latest
+    # This environment variable controls debug logging in Python
+    environment:
+      - DEBUG_DATA_FLOW=true
     depends_on:
       - mqtt-broker
       - influxdb
@@ -53,11 +60,8 @@ networks:
 
 #!/bin/bash
 
-# Configurează broker-ul MQTT și portul
-BROKER_HOST="localhost"   # înlocuiește cu IP/hostname corespunzător
-BROKER_PORT=1883          # portul implicit al broker-ului
-
-echo "Trimit 10 mesaje diferite..."
+BROKER_HOST="localhost" 
+BROKER_PORT=1883
 
 mosquitto_pub \
   -h "$BROKER_HOST" \
@@ -120,19 +124,21 @@ mosquitto_pub \
   -m '{"value1":123,"value2":456,"value3":789,"status":"OK"}'
 
 
-#### config.toml
+#### influxdb.conf
 
 [meta]
-  dir = "/var/lib/influxdb2/meta"
+  dir = "/var/lib/influxdb/meta"
 
 [data]
-  dir = "/var/lib/influxdb2/data"
-  wal-dir = "/var/lib/influxdb2/wal"
+  dir = "/var/lib/influxdb/data"
+  wal-dir = "/var/lib/influxdb/wal"
+
+[coordinator]
+  write-timeout = "10s"
 
 [http]
-  bind-address = ":8086"
-  access-log-enabled = true
-  auth-enabled = false  # Setează pe true dacă activezi autentificarea
+  # Disable HTTP authentication
+  auth-enabled = false
 
 #### run.sh
 
@@ -180,52 +186,81 @@ listener 1883
 
 import json
 import time
+import os
+from datetime import datetime
 from paho.mqtt.client import Client, CallbackAPIVersion
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 
-# Configuration
 BROKER = "mqtt-broker"
 PORT = 1883
 TOPIC = "#"
 INFLUXDB_URL = "http://influxdb:8086"
-INFLUXDB_TOKEN = "my-token"
+INFLUXDB_TOKEN = ""
 INFLUXDB_BUCKET = "iot_data"
 INFLUXDB_ORG = "my-org"
+
+DEBUG_MODE = os.getenv("DEBUG_DATA_FLOW", "false").lower() == "true"
+
+def debug_log(msg: str):
+    if DEBUG_MODE:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{now_str} {msg}", flush=True)
 
 def on_message(client, userdata, message):
     topic = message.topic
     payload = message.payload.decode()
+
+    debug_log(f"Received a message by topic [{topic}]")
+
     try:
-        # Parse JSON payload
         data = json.loads(payload)
-        timestamp = data.get("timestamp", time.time())
-        
-        # Prepare InfluxDB entries
+        # If the JSON has 'timestamp', try to use it; otherwise use now
+        # This part is flexible depending on how you want to handle your 'timestamp' field
+        if 'timestamp' in data:
+            if isinstance(data['timestamp'], (int, float)):
+                # It's numeric => convert to datetime
+                ts_float = data['timestamp']
+                debug_log(f"Data timestamp is numeric => {ts_float}")
+                timestamp_dt = datetime.utcfromtimestamp(ts_float)
+            else:
+                # It's a string => attempt to parse or fallback to now
+                debug_log("Data timestamp is a string => parse it or fallback to now")
+                try:
+                    timestamp_dt = datetime.fromisoformat(data['timestamp'])
+                except ValueError:
+                    debug_log("Could not parse string timestamp, falling back to now")
+                    timestamp_dt = datetime.utcnow()
+        else:
+            debug_log("Data timestamp is : NOW")
+            timestamp_dt = datetime.utcnow()
+
         series_prefix = topic.replace("/", ".")
         points = []
         for key, value in data.items():
             if isinstance(value, (int, float)):
-                point = Point(series_prefix).field(key, value).time(timestamp, WritePrecision.NS)
+                point = Point(series_prefix) \
+                    .field(key, value) \
+                    .time(timestamp_dt, WritePrecision.NS)
                 points.append(point)
+                debug_log(f"{series_prefix}.{key} => {value}")
 
-        # Write to InfluxDB
         if points:
             with InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG) as influx_client:
                 write_api = influx_client.write_api()
                 write_api.write(bucket=INFLUXDB_BUCKET, org=INFLUXDB_ORG, record=points)
-                print(f"Data written to InfluxDB: {points}")
-    except json.JSONDecodeError:
-        print(f"Invalid JSON payload: {payload}")
-    except Exception as e:
-        print(f"Error processing message: {e}")
+                debug_log(f"Data written to InfluxDB: {points}")
 
-# MQTT client setup
+    except json.JSONDecodeError:
+        print(f"Invalid JSON payload: {payload}", flush=True)
+    except Exception as e:
+        print(f"Error processing message: {e}", flush=True)
+
 mqtt_client = Client(callback_api_version=CallbackAPIVersion.VERSION2)
 mqtt_client.on_message = on_message
 mqtt_client.connect(BROKER, PORT)
 mqtt_client.subscribe(TOPIC)
 
-print("Adapter is listening for messages...")
+print("Adapter is listening for messages...", flush=True)
 mqtt_client.loop_forever()
 
 #### Dockerfile
