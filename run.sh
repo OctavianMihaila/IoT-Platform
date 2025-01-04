@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# Name of the Docker registry image, e.g., your Docker Hub username and repository name
 IMAGE_NAME="mhoctavian/adapter:latest"
-STACK_NAME="tema3"
+STACK_NAME="scd3"
+
+# It says we should set this but is unused in my code.
+export SCD_DVP=/var/lib/docker/volumes
 
 # Function to stop everything immediately (reset functionality)
 reset_stack() {
@@ -39,28 +41,19 @@ restart_stack() {
     docker service ls
 }
 
-# Function to show usage
 show_usage() {
-    echo "Usage: $0 {reset|restart}"
+    echo "Usage: $0 {restart}"
     echo
-    echo "reset   - Stops all services, deletes volumes and networks, rebuilds everything from scratch."
-    echo "restart - Restarts services while preserving persistent data (volumes) and shows configuration."
+    echo "If no argument is provided, the reset operation will run by default."
+    echo "restart - Restarts services while preserving persistent data (volumes)."
     exit 1
 }
 
-# Main logic to handle reset and restart commands
-if [[ "$#" -ne 1 ]]; then
+# Main logic
+if [[ "$#" -eq 0 ]]; then
+    reset_stack
+elif [[ "$1" == "restart" ]]; then
+    restart_stack
+else
     show_usage
 fi
-
-case "$1" in
-    reset)
-        reset_stack
-        ;;
-    restart)
-        restart_stack
-        ;;
-    *)
-        show_usage
-        ;;
-esac

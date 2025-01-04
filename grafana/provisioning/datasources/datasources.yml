@@ -7,4 +7,3 @@ datasources:
     url: http://influxdb:8086
     database: iot_data
     isDefault: true
-

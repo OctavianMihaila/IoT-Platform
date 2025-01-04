@@ -47,8 +47,7 @@ services:
 
   adapter:
     image: mhoctavian/adapter:latest
-    # This environment variable controls debug logging in Python
-    environment:
+    environment: # This environment variable controls debug logging in Python
       - DEBUG_DATA_FLOW=true
     depends_on:
       - mqtt-broker

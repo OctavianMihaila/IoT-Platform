@@ -8,8 +8,8 @@ TOPIC="UPB/RPi_1"
 generate_data() {
   echo "Generating data for topic: $TOPIC"
 
-  local iterations=${1:-100}  # Default to 100 messages if not specified
-  local interval=${2:-1}      # Default to 1 second interval if not specified
+  local iterations=${1:-100}
+  local interval=${2:-1}
 
   for ((i = 1; i <= iterations; i++)); do
     local bat=$((RANDOM % 20 + 80))        # Random BAT value between 80 and 100
@@ -38,9 +38,9 @@ fi
 if [[ "$1" == "show" ]]; then
   echo "Fetching data from InfluxDB..."
 
-  docker exec $(docker ps -q -f name=tema3_influxdb) influx -database iot_data -execute "SHOW MEASUREMENTS" -format csv | tail -n +2 | cut -d, -f2 | while read measurement; do \
+  docker exec $(docker ps -q -f name=scd3_influxdb) influx -database iot_data -execute "SHOW MEASUREMENTS" -format csv | tail -n +2 | cut -d, -f2 | while read measurement; do \
     echo "Querying measurement: $measurement"; \
-    docker exec $(docker ps -q -f name=tema3_influxdb) influx -database iot_data -execute "SELECT * FROM \"$measurement\" LIMIT 10"; \
+    docker exec $(docker ps -q -f name=scd3_influxdb) influx -database iot_data -execute "SELECT * FROM \"$measurement\" LIMIT 10"; \
   done
 
   exit 0

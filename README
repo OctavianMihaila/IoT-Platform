@@ -1,1 +1,103 @@
-De zis ca prima data se ruleaza ./tesh.sh run apoi ./iot_UPB pt primul dashboard.
+# Author: Mihaila Octavian-Iulian
+# Group: 342C2
+
+# Overview 
+
+    -> This project focuses on developing an IoT platform using microservices for collecting,
+       storing, and visualizing numerical data from IoT devices. By leveraging technologies
+       like MQTT for messaging, InfluxDB for time-series data storage, and Grafana for
+       visualization, it provides a cloud-inspired architecture with Docker Swarm deployment.
+
+# How to run
+
+    -> Pre-requisites:
+        - Docker
+        - Docker Swarm
+        - Python3
+        - Mosquitto CLI
+        - InfluxDB
+        - Grafana
+
+    -> First run (will deploy the stack and create the necessary services):
+        ./run.sh
+
+    -> Restart the stack (used to test for data persistence):
+        ./run.sh restart
+
+    -> Test the functionality (push messages to the MQTT broker):
+        ./tesh.sh run
+    
+    -> Display content of influxdb:
+        ./test.sh show
+
+    -> Test grafana iot UPB dashboard:
+        ./test.sh run
+        ./iot_UPB_generator.sh run 500 0.5
+        -- Those will generate data so that the dashboard funcionality can be tested.
+        -- Aditionally if u want to easly see the data, change refresh time and display
+           period to minimum.
+
+# Implementation
+
+    -> Stack:
+
+        -- Infrastructure is deployes using a docker swarm stack that runs with a single
+           network (IoT network) and two volumes, one for InfluxDB and one for Grafana.
+
+        -- The network used is an overlay network that allows the services to communicate
+           with each other in a secure manner.
+
+    -> Services:
+
+        -- MQTT broker:
+            -- EMQX is the open-source broker that I chose to use. It is configured in a way
+               that allows it to receive messages without authentication. This configuration
+               is present in misquitto.conf file.
+
+        -- InfluxDB:
+
+            -- InfluxDB is used to store the data received from the MQTT broker. Same as the 
+               borker, it does not require authentication. The data is stored in a database
+               that is structured based on topics and messages. influxdb_data volumes is
+               responsible for storing the data in a persistent manner.
+
+            -- The database is created using create_db.sh script, in a way the allow for 
+               unlimited retention of data, which means that the data will not be deleted
+               after a certain period of time.
+
+        -- Adapter:
+
+            -- The adapter service consists of a python script that is responsible for taking
+               the data from the mqtt broker and filtering it and publishing it to the influxdb
+               based on the topic. The script is run in a container that is connected to the
+               IoT network.
+
+            -- The image of the adapter is built and pushed to the docker hub and then retrieved
+               for future use. In this way we can ensure that the adapter is always up to date 
+               and can be easily deployed on any machine.
+
+            -- Logging can be displayed in the console by running the following command:
+               docker service logs scd3_adapter, but only if variable DEBUG_DATA_FLOW is set to
+               true in the stack yml file, where the service is defined.
+
+            -- The adapter takes care of other aspects such as message time and message format.
+               When a message with no timestamp comes from the broker, it assigns the current
+               time with the maximum precision. In a similar manner, fields that do not contain
+               numerical data are removed from the message.
+
+        -- Grafana:
+
+            -- Grafana is configured with the purpose of displaying the iot_UPB graph based on
+               the data that is stored in the InfluxDB. The dashboard is created using the json
+               file that is stored in /grafana/provisioning/dashboards/iot_UPB.json. which is
+               a result of exporting the dashboard from the grafana web interface.
+
+            -- See how to run section for more details on how to test the dashboard.
+
+# Mentions
+
+    -> Only the first dashboard (IoT UPB) is implemented. The second one (IoT UPB 2) is not
+       implemented.
+
+    -> All the services run in the same network, so we don't have traffic separation between
+       servies (different networks).

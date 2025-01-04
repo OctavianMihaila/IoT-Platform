@@ -6,9 +6,9 @@ BROKER_PORT=1883
 if [[ "$1" == "show" ]]; then
   echo "Fetching data from InfluxDB..."
 
-  docker exec $(docker ps -q -f name=tema3_influxdb) influx -database iot_data -execute "SHOW MEASUREMENTS" -format csv | tail -n +2 | cut -d, -f2 | while read measurement; do \
+  docker exec $(docker ps -q -f name=scd3_influxdb) influx -database iot_data -execute "SHOW MEASUREMENTS" -format csv | tail -n +2 | cut -d, -f2 | while read measurement; do \
     echo "Querying measurement: $measurement"; \
-    docker exec $(docker ps -q -f name=tema3_influxdb) influx -database iot_data -execute "SELECT * FROM \"$measurement\" LIMIT 10"; \
+    docker exec $(docker ps -q -f name=scd3_influxdb) influx -database iot_data -execute "SELECT * FROM \"$measurement\" LIMIT 10"; \
   done
 
   exit 0

@@ -28,16 +28,14 @@ def on_message(client, userdata, message):
 
     try:
         data = json.loads(payload)
-        # If the JSON has 'timestamp', try to use it; otherwise use now
-        # This part is flexible depending on how you want to handle your 'timestamp' field
+        # If the JSON has 'timestamp', it is used, otherwise the current time is employed
         if 'timestamp' in data:
             if isinstance(data['timestamp'], (int, float)):
                 # It's numeric => convert to datetime
                 ts_float = data['timestamp']
                 debug_log(f"Data timestamp is numeric => {ts_float}")
                 timestamp_dt = datetime.utcfromtimestamp(ts_float)
-            else:
-                # It's a string => attempt to parse or fallback to now
+            else: # It's a string => attempt to parse or fallback to now
                 debug_log("Data timestamp is a string => parse it or fallback to now")
                 try:
                     timestamp_dt = datetime.fromisoformat(data['timestamp'])
@@ -50,6 +48,7 @@ def on_message(client, userdata, message):
 
         series_prefix = topic.replace("/", ".")
         points = []
+
         for key, value in data.items():
             if isinstance(value, (int, float)):
                 point = Point(series_prefix) \
@@ -58,7 +57,7 @@ def on_message(client, userdata, message):
                 points.append(point)
                 debug_log(f"{series_prefix}.{key} => {value}")
 
-        if points:
+        if points: # Push data to InfluxDB
             with InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG) as influx_client:
                 write_api = influx_client.write_api()
                 write_api.write(bucket=INFLUXDB_BUCKET, org=INFLUXDB_ORG, record=points)
